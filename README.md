@@ -50,7 +50,21 @@ terraform plan
 terraform apply
 ```
 
-### 3. Build and Push Container Image
+### 3. Configure Coder Access URL
+
+After the initial deployment, configure Coder with its access URL:
+
+```bash
+# Using PowerShell (Windows)
+.\scripts\configure-coder.ps1
+
+# Or using bash (Linux/macOS/WSL)
+./scripts/configure-coder.sh
+```
+
+This sets the `CODER_ACCESS_URL` environment variable and restarts the Coder server.
+
+### 4. Build and Push Container Image
 
 After Terraform completes, build and push the dev container:
 
@@ -75,7 +89,7 @@ docker push $ACR_SERVER/devcontainer-dotnet:8.0
 docker push $ACR_SERVER/devcontainer-dotnet:9.0
 ```
 
-### 4. Configure Coder
+### 5. Set Up Coder Workspace Template
 
 1. Get the Coder URL from Terraform output:
    ```bash
@@ -89,7 +103,7 @@ docker push $ACR_SERVER/devcontainer-dotnet:9.0
    - Upload the files from the `coder/` directory
    - Configure the template variables with values from Terraform outputs
 
-### 5. Create Your First Workspace
+### 6. Create Your First Workspace
 
 1. In Coder, click **Create Workspace**
 2. Select the workspace template

@@ -115,12 +115,6 @@ resource "azuread_application" "coder" {
   display_name = "Coder Workstation"
   owners       = [data.azuread_client_config.current.object_id]
 
-  web {
-    redirect_uris = [
-      "https://${azurerm_container_app.coder.ingress[0].fqdn}/api/v2/users/oidc/callback"
-    ]
-  }
-
   required_resource_access {
     resource_app_id = "00000003-0000-0000-c000-000000000000" # Microsoft Graph
 
@@ -176,11 +170,6 @@ resource "azurerm_container_app" "coder" {
       image  = "ghcr.io/coder/coder:v${var.coder_version}"
       cpu    = 1
       memory = "2Gi"
-
-      env {
-        name  = "CODER_ACCESS_URL"
-        value = "https://${azurerm_container_app.coder.ingress[0].fqdn}"
-      }
 
       env {
         name  = "CODER_HTTP_ADDRESS"
