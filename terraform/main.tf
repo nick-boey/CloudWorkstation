@@ -177,11 +177,6 @@ resource "azurerm_container_app" "coder" {
       }
 
       env {
-        name  = "CODER_PG_CONNECTION_URL"
-        value = "sqlite3:///coder-data/coder.db"
-      }
-
-      env {
         name  = "CODER_OIDC_ISSUER_URL"
         value = "https://login.microsoftonline.com/${data.azurerm_client_config.current.tenant_id}/v2.0"
       }

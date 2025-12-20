@@ -39,6 +39,12 @@ docker build -t "$ACR_SERVER/devcontainer-dotnet:9.0" `
     --build-arg DOTNET_VERSION=9.0 `
     --platform linux/amd64 `
     .
+Write-Host ""
+Write-Host "Building .NET 10.0 image..."
+docker build -t "$ACR_SERVER/devcontainer-dotnet:10.0" `
+    --build-arg DOTNET_VERSION=10.0 `
+    --platform linux/amd64 `
+    .
 
 # Push images
 Write-Host ""
@@ -49,6 +55,10 @@ Write-Host ""
 Write-Host "Pushing .NET 9.0 image..."
 docker push "$ACR_SERVER/devcontainer-dotnet:9.0"
 
+Write-Host ""
+Write-Host "Pushing .NET 10.0 image..."
+docker push "$ACR_SERVER/devcontainer-dotnet:10.0"
+
 Pop-Location
 
 Write-Host ""
@@ -56,3 +66,4 @@ Write-Host "=== Build Complete ==="
 Write-Host "Images pushed:"
 Write-Host "  - $ACR_SERVER/devcontainer-dotnet:8.0"
 Write-Host "  - $ACR_SERVER/devcontainer-dotnet:9.0"
+Write-Host "  - $ACR_SERVER/devcontainer-dotnet:10.0"

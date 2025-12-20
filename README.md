@@ -92,7 +92,9 @@ docker push $ACR_SERVER/devcontainer-dotnet:9.0
 ### 5. Set Up Coder Workspace Template
 
 1. Get the Coder URL from Terraform output:
-   ```bash
+
+   ```powershell
+   cd terraform
    terraform output coder_url
    ```
 
