@@ -1,23 +1,44 @@
 # Cloud Workstation
 
-A Coder-based development environment running on Azure Container Apps, with .NET, Git, GitHub CLI, and Claude Code pre-installed.
+A Coder-based development environment running on Azure with Happy Server integration for mobile Claude Code connectivity.
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                         Azure Virtual Network                        │
+│                                                                       │
+│  ┌─────────────────────────────────┐  ┌─────────────────────────────┐│
+│  │     VM (Coder + Happy Server)   │  │   Dev Containers (ACI)      ││
+│  │                                 │  │                             ││
+│  │  - Coder Server                 │  │  - .NET SDK                 ││
+│  │  - Happy Server (relay)         │  │  - Claude Code CLI          ││
+│  │  - PostgreSQL                   │  │  - Happy CLI                ││
+│  │  - Redis                        │  │  - GitHub CLI               ││
+│  │  - Caddy (HTTPS)                │  │                             ││
+│  └─────────────────────────────────┘  └─────────────────────────────┘│
+│                                                                       │
+└─────────────────────────────────────────────────────────────────────┘
+```
 
 ## Features
 
-- **Azure Container Apps**: Serverless, auto-scaling container hosting
+- **Azure VM**: Hosts Coder server and Happy Server relay
+- **Azure Container Instances**: Scalable development containers with VNet integration
+- **Happy Server**: Self-hosted relay for mobile Claude Code connectivity
 - **Azure AD Authentication**: Enterprise SSO with your Microsoft account
-- **Persistent Storage**: Azure Files for workspace data that survives restarts
+- **Persistent Storage**: Azure Files for credentials and workspace data
 - **.NET Development**: Full .NET SDK (8.0 or 9.0)
-- **Git Worktrees**: Work on multiple branches simultaneously
-- **Claude Code CLI**: AI-powered coding assistant
-- **SSH Access**: Connect from any terminal or mobile app
+- **Claude Code + Happy CLI**: AI-powered coding with mobile access
+- **GitHub CLI**: Pre-installed for repository management
 
 ## Prerequisites
 
 - [Azure CLI](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli) installed and authenticated
 - [Terraform](https://www.terraform.io/downloads) >= 1.5.0
-- [Docker](https://www.docker.com/get-started) (for building custom images)
+- [Docker](https://www.docker.com/get-started) (for building images)
 - An Azure subscription with permissions to create resources
+- An SSH key pair for VM access
 
 ## Quick Start
 
@@ -28,10 +49,14 @@ cd CloudWorkstation/terraform
 cp terraform.tfvars.example terraform.tfvars
 ```
 
-Edit `terraform.tfvars` with your settings:
+Edit `terraform.tfvars`:
 
 ```hcl
-admin_email = "your-email@example.com"
+admin_email       = "your-email@example.com"
+vm_ssh_public_key = "ssh-rsa AAAA... your-key"
+
+# Optional: Restrict SSH access to your IP
+ssh_allowed_ip    = "YOUR_PUBLIC_IP/32"
 ```
 
 ### 2. Deploy Infrastructure
@@ -46,85 +71,76 @@ terraform init
 # Preview changes
 terraform plan
 
-# Deploy
+# Deploy (takes ~10 minutes)
 terraform apply
 ```
 
-### 3. Configure Coder Access URL
+### 3. Build and Push Container Images
 
-After the initial deployment, configure Coder with its access URL:
-
-```bash
-# Using PowerShell (Windows)
-.\scripts\configure-coder.ps1
-
-# Or using bash (Linux/macOS/WSL)
-./scripts/configure-coder.sh
-```
-
-This sets the `CODER_ACCESS_URL` environment variable and restarts the Coder server.
-
-### 4. Build and Push Container Image
-
-After Terraform completes, build and push the dev container:
+After Terraform completes, build the development container:
 
 ```bash
-# Get registry credentials from Terraform output
-ACR_SERVER=$(terraform output -raw container_registry_login_server)
-ACR_USERNAME=$(terraform output -raw container_registry_username)
-ACR_PASSWORD=$(terraform output -raw container_registry_password)
-
-# Login to Azure Container Registry
-docker login $ACR_SERVER -u $ACR_USERNAME -p $ACR_PASSWORD
-
-# Build for .NET 8.0
-cd ../docker
-docker build -t $ACR_SERVER/devcontainer-dotnet:8.0 --build-arg DOTNET_VERSION=8.0 .
-
-# Build for .NET 9.0 (optional)
-docker build -t $ACR_SERVER/devcontainer-dotnet:9.0 --build-arg DOTNET_VERSION=9.0 .
-
-# Push images
-docker push $ACR_SERVER/devcontainer-dotnet:8.0
-docker push $ACR_SERVER/devcontainer-dotnet:9.0
+./scripts/build-and-push.sh
 ```
 
-### 5. Set Up Coder Workspace Template
+### 4. Access Coder
 
-1. Get the Coder URL from Terraform output:
+Get the Coder URL from Terraform output:
 
-   ```powershell
-   cd terraform
+```bash
+terraform output coder_url
+```
+
+Open the URL in your browser and sign in with your Microsoft account.
+
+### 5. Create Coder Template
+
+1. In Coder, go to **Templates** > **Create Template**
+2. Upload the files from the `coder/` directory
+3. Configure the template variables with values from Terraform outputs:
+
+   ```bash
+   # Get all the values you need
+   terraform output aci_subnet_id
+   terraform output container_registry_login_server
+   terraform output container_registry_username
+   terraform output -raw container_registry_password
+   terraform output storage_account_name
+   terraform output -raw storage_account_key
+   terraform output resource_group_name
+   terraform output vm_private_ip
    terraform output coder_url
    ```
-
-2. Open the URL in your browser and sign in with your Microsoft account
-
-3. Create the workspace template:
-   - Go to **Templates** > **Create Template**
-   - Upload the files from the `coder/` directory
-   - Configure the template variables with values from Terraform outputs
 
 ### 6. Create Your First Workspace
 
 1. In Coder, click **Create Workspace**
-2. Select the workspace template
+2. Select your template
 3. Configure:
    - **CPU**: 2/4/8 cores
    - **Memory**: 8/16/32 GB
    - **.NET Version**: 8.0 or 9.0
-   - **Git Repositories**: Comma-separated list of repos to clone
+   - **Git Repository**: URL of repo to clone (optional)
 
 4. Click **Create** and wait for the workspace to start
 
-## Connecting to Your Workspace
+## Mobile Claude Code Access
 
-### SSH Configuration
+When you provide a Git repository URL, the workspace automatically:
+1. Clones the repository
+2. Starts Happy CLI in that directory
+3. Displays a QR code for mobile connection
 
-Coder provides SSH access through its tunnel. First, configure your SSH:
+To connect from your phone:
+1. Install the [Happy mobile app](https://happy.engineering/)
+2. Scan the QR code shown in the workspace terminal
+3. Control Claude Code from your mobile device
+
+## SSH Access
+
+### Install Coder CLI
 
 ```bash
-# Install Coder CLI
 # Windows (PowerShell)
 winget install Coder.Coder
 
@@ -135,216 +151,90 @@ brew install coder/coder/coder
 curl -fsSL https://coder.com/install.sh | sh
 ```
 
-Then configure SSH:
+### Configure SSH
 
 ```bash
 # Login to Coder
-coder login https://your-coder-url.azurecontainerapps.io
+coder login https://your-coder-url.australiaeast.cloudapp.azure.com
 
 # Configure SSH
 coder config-ssh
-```
 
-This adds entries to your `~/.ssh/config` for each workspace.
-
-### Desktop SSH (Terminal/VS Code)
-
-```bash
-# Connect via SSH
+# Connect to workspace
 ssh coder.workspace-name
-
-# Or use the Coder CLI
-coder ssh workspace-name
 ```
 
-For VS Code, install the **Remote - SSH** extension and connect to `coder.workspace-name`.
+### VM SSH Access
 
-### Mobile SSH with Termius
+For debugging the VM directly:
 
-#### Initial Setup
-
-1. **Install Termius** from App Store (iOS) or Play Store (Android)
-
-2. **Get SSH Key from Coder**:
-   ```bash
-   # On your desktop, export the Coder SSH key
-   coder config-ssh --dry-run
-   # Look for the IdentityFile path, usually ~/.ssh/coder_*
-   ```
-
-3. **Transfer the Key to Termius**:
-   - Option A: Use Termius Keychain sync (requires Termius Premium)
-   - Option B: Copy the private key content and paste in Termius
-
-#### Termius Configuration
-
-1. **Add SSH Key**:
-   - Go to **Keychain** > **Keys** > **+**
-   - Name: `Coder Key`
-   - Import the Coder private key
-
-2. **Add Host**:
-   - Go to **Hosts** > **+**
-   - **Label**: `My Workspace`
-   - **Hostname**: Use the Coder tunnel address (see below)
-   - **Username**: `vscode`
-   - **Keys**: Select `Coder Key`
-
-#### Getting the Tunnel Address
-
-For mobile access without port forwarding, you have two options:
-
-**Option A: Coder Tunnel (Recommended)**
-
-Coder provides a built-in tunnel. From your workspace terminal:
 ```bash
-# The Coder agent automatically provides SSH access
-# Connect via: coder.<workspace-name>.coder
+# Get SSH command from Terraform
+terraform output ssh_command
+
+# Example: ssh azureuser@<public-ip>
 ```
-
-**Option B: Use Tailscale/Cloudflare Tunnel**
-
-For a permanent address accessible from mobile:
-
-1. Install Tailscale in your workspace
-2. Connect to your Tailscale network
-3. Use the Tailscale IP in Termius
 
 ## First-Time Workspace Setup
 
-After creating a new workspace, run the credential setup:
+After creating a new workspace, configure your credentials:
 
 ```bash
 setup-credentials.sh
 ```
 
-This will configure:
+This configures:
 - Git username and email
-- GitHub CLI authentication
+- GitHub CLI authentication (`gh auth login`)
 - SSH key generation (optional)
-
-### GitHub CLI Login
-
-```bash
-gh auth login
-```
-
-Choose "GitHub.com" > "SSH" > "Login with a web browser"
 
 ### Claude Code Setup
 
 ```bash
-# Option 1: Interactive login
+# Interactive login
 claude login
 
-# Option 2: Set API key directly
+# Or set API key directly
 claude config set apiKey sk-ant-xxxxx
 ```
 
-## Working with Git Worktrees
-
-The workspace is set up for efficient multi-branch development using Git worktrees.
-
-### Clone a Repository
-
-```bash
-setup-worktree.sh https://github.com/user/repo.git
-```
-
-This creates:
-- `~/repos/repo.git/` - Bare repository
-- `~/repos/repo/main/` - Main branch worktree
-
-### Add Additional Worktrees
-
-```bash
-# Work on a feature branch
-setup-worktree.sh --add repo feature-branch
-
-# Work on a bugfix
-setup-worktree.sh --add repo hotfix-123
-```
-
-### List All Worktrees
-
-```bash
-setup-worktree.sh --list
-```
-
-### Remove a Worktree
-
-```bash
-setup-worktree.sh --remove repo feature-branch
-```
-
-### Directory Structure
-
-```
-~/repos/
-├── myrepo.git/           # Bare repository
-├── myrepo/
-│   ├── main/             # Main branch
-│   ├── feature-auth/     # Feature branch
-│   └── bugfix-123/       # Bugfix branch
-├── another-repo.git/
-└── another-repo/
-    └── main/
-```
-
-## Running Multiple Agents
-
-With worktrees, you can run multiple Claude Code agents simultaneously:
-
-```bash
-# Terminal 1 - Working on feature
-cd ~/repos/myrepo/feature-auth
-claude
-
-# Terminal 2 - Working on bugfix
-cd ~/repos/myrepo/bugfix-123
-claude
-
-# Terminal 3 - Main branch maintenance
-cd ~/repos/myrepo/main
-claude
-```
-
-Each agent works in its own isolated branch directory.
-
 ## Persistence
 
-The following data persists across workspace restarts:
+The following data persists across workspace restarts via Azure Files:
 
-| Data | Location | Backed by |
-|------|----------|-----------|
-| Home directory | `/home/vscode` | Azure Files |
-| Git config | `~/.gitconfig` | Azure Files |
-| GitHub CLI | `~/.config/gh/` | Azure Files |
-| Claude Code | `~/.claude/` | Azure Files |
-| SSH keys | `~/.ssh/` | Azure Files |
-| Repositories | `~/repos/` | Azure Files |
+| Data | Location |
+|------|----------|
+| Git config | `~/.gitconfig` |
+| GitHub CLI | `~/.config/gh/` |
+| Claude Code | `~/.claude/` |
+| Happy CLI | `~/.happy/` |
+| SSH keys | `~/.ssh/` |
+| Repositories | `~/repos/` |
 
 ## Troubleshooting
 
+### VM Services Not Starting
+
+SSH into the VM and check Docker:
+
+```bash
+ssh azureuser@<vm-ip>
+cd /opt/coder
+docker compose ps
+docker compose logs
+```
+
 ### Workspace Won't Start
 
-Check the Container App logs in Azure Portal:
-1. Go to your resource group
-2. Find the Container App for your workspace
-3. Check **Log stream** or **Console logs**
+1. Check the Azure Portal for Container Instance logs
+2. Verify the container image was pushed to ACR
+3. Check VNet connectivity
 
-### SSH Connection Refused
+### Happy CLI Not Connecting
 
-1. Verify the workspace is running in Coder UI
-2. Re-run `coder config-ssh` to refresh SSH config
-3. Check if the Coder agent is running in the workspace
-
-### Slow Performance
-
-Consider upgrading your workspace resources:
-1. Stop the workspace
-2. Edit parameters (CPU/Memory)
-3. Start the workspace
+1. Verify `HAPPY_SERVER_URL` environment variable is set
+2. Check Happy Server is running on the VM: `docker compose ps happy-server`
+3. Ensure VNet allows traffic on port 3005
 
 ### Lost Credentials
 
@@ -359,15 +249,16 @@ Estimated monthly costs (Australia East region):
 
 | Resource | SKU | Est. Cost (AUD) |
 |----------|-----|-----------------|
-| Container App Environment | Consumption | ~$20/month base |
-| Container App (Coder Server) | 1 vCPU, 2GB | ~$40/month |
-| Container App (Workspace) | 2 vCPU, 8GB | ~$80/month (when running) |
-| Azure Files | 50GB | ~$10/month |
-| Container Registry | Basic | ~$7/month |
+| Azure VM | Standard_B2ms | ~$60/month |
+| Managed Disk | 64GB Premium SSD | ~$10/month |
+| Public IP | Static | ~$3/month |
+| Azure Files | 150GB Standard | ~$8/month |
+| Container Registry | Basic | ~$5/month |
+| Container Instance | 2 vCPU, 8GB | ~$80/month (when running) |
 
-**Total**: ~$150-200/month with one active workspace
+**Total**: ~$166/month with one active workspace
 
-*Container Apps charges only for running time. Stop workspaces when not in use to reduce costs.*
+*ACI charges only for running time. Stop workspaces when not in use to reduce costs.*
 
 ## Clean Up
 
@@ -376,6 +267,29 @@ To destroy all resources:
 ```bash
 cd terraform
 terraform destroy
+```
+
+## Project Structure
+
+```
+CloudWorkstation/
+├── terraform/              # Azure infrastructure
+│   ├── main.tf             # VM, VNet, storage, ACR
+│   ├── variables.tf        # Configuration variables
+│   ├── outputs.tf          # Output values
+│   ├── providers.tf        # Provider configuration
+│   └── cloud-init.yaml     # VM bootstrap script
+├── coder/                  # Coder workspace template
+│   └── main.tf             # ACI-based workspace definition
+├── docker/                 # Development container
+│   ├── Dockerfile          # .NET + Claude Code + Happy CLI
+│   └── scripts/
+│       ├── entrypoint.sh   # Container startup
+│       ├── setup-credentials.sh
+│       └── setup-worktree.sh
+├── scripts/
+│   └── build-and-push.sh   # Build and push container images
+└── README.md
 ```
 
 ## License

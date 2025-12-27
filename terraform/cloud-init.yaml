@@ -1,0 +1,221 @@
+#cloud-config
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - apt-transport-https
+  - ca-certificates
+  - curl
+  - gnupg
+  - lsb-release
+  - cifs-utils
+  - jq
+
+write_files:
+  # Docker daemon configuration
+  - path: /etc/docker/daemon.json
+    content: |
+      {
+        "log-driver": "json-file",
+        "log-opts": {
+          "max-size": "10m",
+          "max-file": "3"
+        }
+      }
+
+  # Environment file for docker-compose
+  - path: /opt/coder/.env
+    content: |
+      # PostgreSQL
+      POSTGRES_PASSWORD=${postgres_password}
+
+      # Happy Server
+      HAPPY_SEED=${happy_seed}
+
+      # Coder OIDC
+      OIDC_ISSUER_URL=${oidc_issuer_url}
+      OIDC_CLIENT_ID=${oidc_client_id}
+      OIDC_CLIENT_SECRET=${oidc_client_secret}
+
+      # URLs
+      VM_FQDN=${vm_fqdn}
+      VM_PRIVATE_IP=${vm_private_ip}
+      CODER_VERSION=${coder_version}
+
+      # ACR
+      ACR_LOGIN_SERVER=${acr_login_server}
+      ACR_USERNAME=${acr_username}
+      ACR_PASSWORD=${acr_password}
+
+  # Docker Compose file
+  - path: /opt/coder/docker-compose.yml
+    content: |
+      services:
+        postgres:
+          image: postgres:15-alpine
+          container_name: postgres
+          restart: unless-stopped
+          environment:
+            POSTGRES_DB: happy-server
+            POSTGRES_USER: happy
+            POSTGRES_PASSWORD: $${POSTGRES_PASSWORD}
+          volumes:
+            - postgres-data:/var/lib/postgresql/data
+          healthcheck:
+            test: ["CMD-SHELL", "pg_isready -U happy -d happy-server"]
+            interval: 10s
+            timeout: 5s
+            retries: 5
+
+        redis:
+          image: redis:7-alpine
+          container_name: redis
+          restart: unless-stopped
+          volumes:
+            - redis-data:/data
+          healthcheck:
+            test: ["CMD", "redis-cli", "ping"]
+            interval: 10s
+            timeout: 5s
+            retries: 5
+
+        happy-server:
+          image: ghcr.io/slopus/happy-server:latest
+          container_name: happy-server
+          restart: unless-stopped
+          ports:
+            - "3005:3005"
+          environment:
+            DATABASE_URL: postgresql://happy:$${POSTGRES_PASSWORD}@postgres:5432/happy-server
+            REDIS_URL: redis://redis:6379
+            SEED: $${HAPPY_SEED}
+            PORT: "3005"
+            NODE_ENV: production
+          depends_on:
+            postgres:
+              condition: service_healthy
+            redis:
+              condition: service_healthy
+
+        caddy:
+          image: caddy:2-alpine
+          container_name: caddy
+          restart: unless-stopped
+          ports:
+            - "80:80"
+            - "443:443"
+          volumes:
+            - /opt/coder/Caddyfile:/etc/caddy/Caddyfile:ro
+            - caddy-data:/data
+            - caddy-config:/config
+          depends_on:
+            - coder
+
+        coder:
+          image: ghcr.io/coder/coder:v$${CODER_VERSION}
+          container_name: coder
+          restart: unless-stopped
+          environment:
+            CODER_HTTP_ADDRESS: "0.0.0.0:7080"
+            CODER_ACCESS_URL: "https://$${VM_FQDN}"
+            CODER_OIDC_ISSUER_URL: $${OIDC_ISSUER_URL}
+            CODER_OIDC_CLIENT_ID: $${OIDC_CLIENT_ID}
+            CODER_OIDC_CLIENT_SECRET: $${OIDC_CLIENT_SECRET}
+            CODER_OIDC_EMAIL_DOMAIN: ""
+            CODER_OIDC_SCOPES: "openid,profile,email"
+            CODER_TELEMETRY_ENABLE: "false"
+          volumes:
+            - /mnt/coder-data:/home/coder/.config/coderv2
+
+      volumes:
+        postgres-data:
+        redis-data:
+        caddy-data:
+        caddy-config:
+
+  # Caddyfile for reverse proxy with automatic HTTPS
+  - path: /opt/coder/Caddyfile
+    content: |
+      {
+        email admin@example.com
+      }
+
+      ${vm_fqdn} {
+        reverse_proxy coder:7080
+      }
+
+  # Azure Files mount script
+  - path: /opt/coder/mount-azure-files.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      set -e
+
+      STORAGE_ACCOUNT="${storage_account_name}"
+      STORAGE_KEY="${storage_account_key}"
+      CODER_SHARE="${coder_data_share}"
+      WORKSPACE_SHARE="${workspace_data_share}"
+
+      # Create mount points
+      mkdir -p /mnt/coder-data
+      mkdir -p /mnt/workspace-data
+
+      # Create credentials file
+      cat > /etc/smbcredentials/$${STORAGE_ACCOUNT}.cred << EOF
+      username=$${STORAGE_ACCOUNT}
+      password=$${STORAGE_KEY}
+      EOF
+      chmod 600 /etc/smbcredentials/$${STORAGE_ACCOUNT}.cred
+
+      # Add to fstab and mount
+      echo "//$${STORAGE_ACCOUNT}.file.core.windows.net/$${CODER_SHARE} /mnt/coder-data cifs nofail,credentials=/etc/smbcredentials/$${STORAGE_ACCOUNT}.cred,dir_mode=0777,file_mode=0777,serverino,nosharesock,actimeo=30" >> /etc/fstab
+      echo "//$${STORAGE_ACCOUNT}.file.core.windows.net/$${WORKSPACE_SHARE} /mnt/workspace-data cifs nofail,credentials=/etc/smbcredentials/$${STORAGE_ACCOUNT}.cred,dir_mode=0777,file_mode=0777,serverino,nosharesock,actimeo=30" >> /etc/fstab
+
+      mount -a
+
+      echo "Azure Files mounted successfully"
+
+  # Startup script
+  - path: /opt/coder/start-services.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      set -e
+
+      cd /opt/coder
+
+      # Wait for Docker
+      while ! docker info > /dev/null 2>&1; do
+        echo "Waiting for Docker..."
+        sleep 2
+      done
+
+      # Login to ACR
+      echo "${acr_password}" | docker login ${acr_login_server} -u ${acr_username} --password-stdin
+
+      # Start services
+      docker compose up -d
+
+      echo "All services started successfully"
+
+runcmd:
+  # Install Docker
+  - mkdir -p /etc/apt/keyrings
+  - curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+  - echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" > /etc/apt/sources.list.d/docker.list
+  - apt-get update
+  - apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+  - systemctl enable docker
+  - systemctl start docker
+  - usermod -aG docker ${vm_admin_username:-azureuser}
+
+  # Create directories
+  - mkdir -p /opt/coder
+  - mkdir -p /etc/smbcredentials
+
+  # Mount Azure Files
+  - /opt/coder/mount-azure-files.sh
+
+  # Start services
+  - /opt/coder/start-services.sh
