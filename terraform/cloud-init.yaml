@@ -115,6 +115,22 @@ write_files:
             exit 0;
             "
 
+        happy-server-init:
+          image: $${ACR_LOGIN_SERVER}/happy-server:latest
+          container_name: happy-server-init
+          environment:
+            DATABASE_URL: postgresql://coder:$${POSTGRES_PASSWORD}@postgres:5432/happy_server
+          depends_on:
+            postgres:
+              condition: service_healthy
+          entrypoint: >
+            /bin/sh -c "
+            echo 'Running Prisma database migration...';
+            npx prisma db push --schema=/app/node_modules/.prisma/client/schema.prisma --skip-generate;
+            echo 'Database migration complete.';
+            exit 0;
+            "
+
         happy-server:
           image: $${ACR_LOGIN_SERVER}/happy-server:latest
           container_name: happy-server
@@ -142,6 +158,8 @@ write_files:
               condition: service_healthy
             minio:
               condition: service_healthy
+            happy-server-init:
+              condition: service_completed_successfully
 
         caddy:
           image: caddy:2-alpine
