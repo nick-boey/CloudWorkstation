@@ -30,8 +30,12 @@ write_files:
       # PostgreSQL
       POSTGRES_PASSWORD=${postgres_password}
 
+      # MinIO
+      MINIO_PASSWORD=${minio_password}
+
       # Happy Server
       HAPPY_SEED=${happy_seed}
+      HAPPY_MASTER_SECRET=${happy_master_secret}
 
       # Coder OIDC
       OIDC_ISSUER_URL=${oidc_issuer_url}
@@ -81,6 +85,36 @@ write_files:
             timeout: 5s
             retries: 5
 
+        minio:
+          image: minio/minio:latest
+          container_name: minio
+          restart: unless-stopped
+          command: server /data --console-address ":9001"
+          environment:
+            MINIO_ROOT_USER: minioadmin
+            MINIO_ROOT_PASSWORD: $${MINIO_PASSWORD}
+          volumes:
+            - minio-data:/data
+          healthcheck:
+            test: ["CMD", "mc", "ready", "local"]
+            interval: 10s
+            timeout: 5s
+            retries: 5
+
+        minio-init:
+          image: minio/mc:latest
+          container_name: minio-init
+          depends_on:
+            minio:
+              condition: service_healthy
+          entrypoint: >
+            /bin/sh -c "
+            mc alias set myminio http://minio:9000 minioadmin $${MINIO_PASSWORD};
+            mc mb --ignore-existing myminio/happy;
+            mc anonymous set download myminio/happy;
+            exit 0;
+            "
+
         happy-server:
           image: $${ACR_LOGIN_SERVER}/happy-server:latest
           container_name: happy-server
@@ -91,12 +125,22 @@ write_files:
             DATABASE_URL: postgresql://coder:$${POSTGRES_PASSWORD}@postgres:5432/happy_server
             REDIS_URL: redis://redis:6379
             SEED: $${HAPPY_SEED}
+            HANDY_MASTER_SECRET: $${HAPPY_MASTER_SECRET}
             PORT: "3005"
             NODE_ENV: production
+            S3_HOST: minio
+            S3_PORT: "9000"
+            S3_USE_SSL: "false"
+            S3_ACCESS_KEY: minioadmin
+            S3_SECRET_KEY: $${MINIO_PASSWORD}
+            S3_BUCKET: happy
+            S3_PUBLIC_URL: http://minio:9000/happy
           depends_on:
             postgres:
               condition: service_healthy
             redis:
+              condition: service_healthy
+            minio:
               condition: service_healthy
 
         caddy:
@@ -136,6 +180,7 @@ write_files:
       volumes:
         postgres-data:
         redis-data:
+        minio-data:
         caddy-data:
         caddy-config:
 
@@ -156,7 +201,22 @@ write_files:
       }
 
       ${vm_fqdn} {
-        reverse_proxy coder:7080
+        # Happy Server API (path-based routing)
+        # handle_path automatically strips the matched prefix
+        handle_path /happy/* {
+          reverse_proxy happy-server:3005
+        }
+
+        # Happy Server root (rewrite /happy to /)
+        handle /happy {
+          rewrite * /
+          reverse_proxy happy-server:3005
+        }
+
+        # Coder (default)
+        handle {
+          reverse_proxy coder:7080
+        }
       }
 
   # Azure Files mount script

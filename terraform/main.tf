@@ -26,6 +26,16 @@ resource "random_password" "happy_seed" {
   special = false
 }
 
+resource "random_password" "minio" {
+  length  = 32
+  special = false
+}
+
+resource "random_password" "happy_master_secret" {
+  length  = 64
+  special = false
+}
+
 # -----------------------------------------------------------------------------
 # Resource Group
 # -----------------------------------------------------------------------------
@@ -323,7 +333,9 @@ resource "azurerm_linux_virtual_machine" "main" {
     coder_data_share        = azurerm_storage_share.coder_data.name
     workspace_data_share    = azurerm_storage_share.workspace_data.name
     postgres_password       = random_password.postgres.result
+    minio_password          = random_password.minio.result
     happy_seed              = random_password.happy_seed.result
+    happy_master_secret     = random_password.happy_master_secret.result
     coder_version           = var.coder_version
     oidc_issuer_url         = "https://login.microsoftonline.com/${data.azurerm_client_config.current.tenant_id}/v2.0"
     oidc_client_id          = azuread_application.coder.client_id
