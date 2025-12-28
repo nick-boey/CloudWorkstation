@@ -222,7 +222,13 @@ write_files:
         # Happy Server API (path-based routing)
         # handle_path automatically strips the matched prefix
         handle_path /happy/* {
-          reverse_proxy happy-server:3005
+          reverse_proxy happy-server:3005 {
+            # Required for WebSocket/Socket.IO
+            header_up Host {host}
+            header_up X-Real-IP {remote}
+            header_up X-Forwarded-For {remote}
+            header_up X-Forwarded-Proto {scheme}
+          }
         }
 
         # Happy Server root (rewrite /happy to /)
