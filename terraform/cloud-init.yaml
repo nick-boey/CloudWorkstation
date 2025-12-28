@@ -53,18 +53,19 @@ write_files:
     content: |
       services:
         postgres:
-          image: postgres:15-alpine
+          image: postgres:17-alpine
           container_name: postgres
           restart: unless-stopped
           environment:
-            POSTGRES_DB: happy-server
-            POSTGRES_USER: happy
+            POSTGRES_DB: coder
+            POSTGRES_USER: coder
             POSTGRES_PASSWORD: $${POSTGRES_PASSWORD}
           volumes:
             - postgres-data:/var/lib/postgresql/data
+            - /opt/coder/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
           healthcheck:
-            test: ["CMD-SHELL", "pg_isready -U happy -d happy-server"]
-            interval: 10s
+            test: ["CMD-SHELL", "pg_isready -U coder -d coder"]
+            interval: 5s
             timeout: 5s
             retries: 5
 
@@ -81,13 +82,13 @@ write_files:
             retries: 5
 
         happy-server:
-          image: ghcr.io/slopus/happy-server:latest
+          image: $${ACR_LOGIN_SERVER}/happy-server:latest
           container_name: happy-server
           restart: unless-stopped
           ports:
             - "3005:3005"
           environment:
-            DATABASE_URL: postgresql://happy:$${POSTGRES_PASSWORD}@postgres:5432/happy-server
+            DATABASE_URL: postgresql://coder:$${POSTGRES_PASSWORD}@postgres:5432/happy_server
             REDIS_URL: redis://redis:6379
             SEED: $${HAPPY_SEED}
             PORT: "3005"
@@ -117,6 +118,7 @@ write_files:
           container_name: coder
           restart: unless-stopped
           environment:
+            CODER_PG_CONNECTION_URL: "postgresql://coder:$${POSTGRES_PASSWORD}@postgres:5432/coder?sslmode=disable"
             CODER_HTTP_ADDRESS: "0.0.0.0:7080"
             CODER_ACCESS_URL: "https://$${VM_FQDN}"
             CODER_OIDC_ISSUER_URL: $${OIDC_ISSUER_URL}
@@ -127,12 +129,24 @@ write_files:
             CODER_TELEMETRY_ENABLE: "false"
           volumes:
             - /mnt/coder-data:/home/coder/.config/coderv2
+          depends_on:
+            postgres:
+              condition: service_healthy
 
       volumes:
         postgres-data:
         redis-data:
         caddy-data:
         caddy-config:
+
+  # PostgreSQL initialization script to create additional databases
+  - path: /opt/coder/init-db.sql
+    content: |
+      -- Create database for happy-server
+      CREATE DATABASE happy_server;
+
+      -- Grant permissions
+      GRANT ALL PRIVILEGES ON DATABASE happy_server TO coder;
 
   # Caddyfile for reverse proxy with automatic HTTPS
   - path: /opt/coder/Caddyfile
@@ -208,7 +222,7 @@ runcmd:
   - apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
   - systemctl enable docker
   - systemctl start docker
-  - usermod -aG docker ${vm_admin_username:-azureuser}
+  - usermod -aG docker $${vm_admin_username:-azureuser}
 
   # Create directories
   - mkdir -p /opt/coder

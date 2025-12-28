@@ -5,9 +5,9 @@ A Coder-based development environment running on Azure with Happy Server integra
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
+┌──────────────────────────────────────────────────────────────────────┐
 │                         Azure Virtual Network                        │
-│                                                                       │
+│                                                                      │
 │  ┌─────────────────────────────────┐  ┌─────────────────────────────┐│
 │  │     VM (Coder + Happy Server)   │  │   Dev Containers (ACI)      ││
 │  │                                 │  │                             ││
@@ -17,8 +17,8 @@ A Coder-based development environment running on Azure with Happy Server integra
 │  │  - Redis                        │  │  - GitHub CLI               ││
 │  │  - Caddy (HTTPS)                │  │                             ││
 │  └─────────────────────────────────┘  └─────────────────────────────┘│
-│                                                                       │
-└─────────────────────────────────────────────────────────────────────┘
+│                                                                      │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Features
@@ -38,7 +38,35 @@ A Coder-based development environment running on Azure with Happy Server integra
 - [Terraform](https://www.terraform.io/downloads) >= 1.5.0
 - [Docker](https://www.docker.com/get-started) (for building images)
 - An Azure subscription with permissions to create resources
-- An SSH key pair for VM access
+- An SSH key pair for VM access (see below)
+
+### Generating an SSH Key
+
+If you don't have an SSH key, generate one:
+
+```bash
+# Generate a new Ed25519 SSH key (recommended)
+ssh-keygen -t ed25519 -C "your-email@example.com"
+
+# Or RSA if Ed25519 isn't supported
+ssh-keygen -t rsa -b 4096 -C "your-email@example.com"
+```
+
+When prompted:
+1. Press **Enter** to accept the default location (`~/.ssh/id_ed25519` or `~/.ssh/id_rsa`)
+2. Enter a passphrase (recommended for security) or press **Enter** for no passphrase
+
+Copy your **public** key to use in `terraform.tfvars`:
+
+```bash
+# Windows (PowerShell)
+Get-Content ~/.ssh/id_ed25519.pub
+
+# macOS/Linux
+cat ~/.ssh/id_ed25519.pub
+```
+
+The output will look like: `ssh-ed25519 AAAA... your-email@example.com`
 
 ## Quick Start
 
@@ -77,10 +105,48 @@ terraform apply
 
 ### 3. Build and Push Container Images
 
-After Terraform completes, build the development container:
+After Terraform completes, you need to build and push two container images to your Azure Container Registry.
+
+#### Get ACR Credentials
+
+```bash
+# Get your ACR login server (e.g., acrcoderwsabc123.azurecr.io)
+terraform output container_registry_login_server
+
+# Login to ACR
+az acr login --name <acr-name>
+```
+
+#### Build Development Container
 
 ```bash
 ./scripts/build-and-push.sh
+```
+
+#### Build Happy Server
+
+Happy Server is not available as a pre-built image and must be built from source:
+
+```bash
+# Clone the Happy Server repository
+git clone https://github.com/slopus/happy-server
+cd happy-server
+
+# Build the Docker image
+docker build -t happy-server:latest .
+
+# Tag for your ACR (replace with your ACR login server)
+docker tag happy-server:latest <acr-login-server>/happy-server:latest
+
+# Push to ACR
+docker push <acr-login-server>/happy-server:latest
+```
+
+For example, if your ACR login server is `acrcoderwsabc123.azurecr.io`:
+
+```bash
+docker tag happy-server:latest acrcoderwsabc123.azurecr.io/happy-server:latest
+docker push acrcoderwsabc123.azurecr.io/happy-server:latest
 ```
 
 ### 4. Access Coder
