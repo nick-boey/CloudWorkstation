@@ -25,40 +25,27 @@ echo "ACR Server: $ACR_SERVER"
 echo "Logging into Azure Container Registry..."
 echo "$ACR_PASSWORD" | docker login "$ACR_SERVER" -u "$ACR_USERNAME" --password-stdin
 
-# Build images
+# Build image
 cd "$PROJECT_DIR/docker"
 
 echo ""
-echo "Building .NET 8.0 image..."
-docker build -t "$ACR_SERVER/devcontainer-dotnet:8.0" \
-    --build-arg DOTNET_VERSION=8.0 \
+echo "Building devcontainer image..."
+docker build -t "$ACR_SERVER/devcontainer-dotnet:latest" \
     --platform linux/amd64 \
     .
 
+# Push image
 echo ""
-echo "Building .NET 9.0 image..."
-docker build -t "$ACR_SERVER/devcontainer-dotnet:9.0" \
-    --build-arg DOTNET_VERSION=9.0 \
-    --platform linux/amd64 \
-    .
-
-# Push images
-echo ""
-echo "Pushing .NET 8.0 image..."
-docker push "$ACR_SERVER/devcontainer-dotnet:8.0"
-
-echo ""
-echo "Pushing .NET 9.0 image..."
-docker push "$ACR_SERVER/devcontainer-dotnet:9.0"
+echo "Pushing devcontainer image..."
+docker push "$ACR_SERVER/devcontainer-dotnet:latest"
 
 echo ""
 echo "=== Build Complete ==="
-echo "Images pushed:"
-echo "  - $ACR_SERVER/devcontainer-dotnet:8.0"
-echo "  - $ACR_SERVER/devcontainer-dotnet:9.0"
+echo "Image pushed:"
+echo "  - $ACR_SERVER/devcontainer-dotnet:latest"
 echo ""
-echo "These images include:"
-echo "  - .NET SDK"
+echo "This image includes:"
+echo "  - .NET SDK (latest)"
 echo "  - Claude Code CLI"
 echo "  - Happy CLI (for mobile Claude Code connectivity)"
 echo "  - GitHub CLI"

@@ -1,6 +1,5 @@
 # Base image: Microsoft .NET Dev Container (Debian-based)
-ARG DOTNET_VERSION=9.0
-FROM mcr.microsoft.com/devcontainers/dotnet:1-${DOTNET_VERSION}
+FROM mcr.microsoft.com/devcontainers/dotnet:latest
 
 # Arguments for customization
 ARG NODE_VERSION="20"
