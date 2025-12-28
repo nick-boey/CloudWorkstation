@@ -42,11 +42,11 @@ provider "azurerm" {
 provider "coder" {}
 
 # -----------------------------------------------------------------------------
-# Coder Template Variables
+# Coder Template Variables (from Terraform outputs)
 # -----------------------------------------------------------------------------
 
-variable "container_app_environment_id" {
-  description = "Azure Container App Environment ID"
+variable "aci_subnet_id" {
+  description = "Azure Container Instance subnet ID"
   type        = string
 }
 
@@ -88,6 +88,16 @@ variable "location" {
   default     = "australiaeast"
 }
 
+variable "vm_private_ip" {
+  description = "VM private IP address (for Coder and Happy Server)"
+  type        = string
+}
+
+variable "coder_access_url" {
+  description = "Coder server access URL"
+  type        = string
+}
+
 # -----------------------------------------------------------------------------
 # Coder Data Sources
 # -----------------------------------------------------------------------------
@@ -123,23 +133,23 @@ data "coder_parameter" "cpu" {
 
 data "coder_parameter" "memory" {
   name         = "memory"
-  display_name = "Memory"
+  display_name = "Memory (GB)"
   description  = "Amount of RAM for the workspace"
-  type         = "string"
-  default      = "8Gi"
+  type         = "number"
+  default      = "8"
   mutable      = true
 
   option {
     name  = "8 GB"
-    value = "8Gi"
+    value = "8"
   }
   option {
     name  = "16 GB"
-    value = "16Gi"
+    value = "16"
   }
   option {
     name  = "32 GB"
-    value = "32Gi"
+    value = "32"
   }
 }
 
@@ -148,7 +158,7 @@ data "coder_parameter" "dotnet_version" {
   display_name = ".NET Version"
   description  = "Version of .NET SDK"
   type         = "string"
-  default      = "8.0"
+  default      = "9.0"
   mutable      = false
 
   option {
@@ -161,10 +171,10 @@ data "coder_parameter" "dotnet_version" {
   }
 }
 
-data "coder_parameter" "git_repos" {
-  name         = "git_repos"
-  display_name = "Git Repositories"
-  description  = "Comma-separated list of Git repository URLs to clone (e.g., https://github.com/user/repo1,https://github.com/user/repo2)"
+data "coder_parameter" "git_repository" {
+  name         = "git_repository"
+  display_name = "Git Repository"
+  description  = "Git repository URL to clone on startup (will run Happy CLI in this directory)"
   type         = "string"
   default      = ""
   mutable      = true
@@ -179,42 +189,46 @@ resource "coder_agent" "main" {
   os   = "linux"
 
   display_apps {
-    vscode          = false
-    vscode_insiders = false
-    ssh_helper      = true
+    vscode                 = false
+    vscode_insiders        = false
+    ssh_helper             = true
     port_forwarding_helper = true
-    web_terminal    = true
+    web_terminal           = true
   }
 
   startup_script = <<-EOT
     #!/bin/bash
     set -e
 
-    # Ensure SSH directory exists with correct permissions
-    mkdir -p ~/.ssh
+    # Ensure directories exist with correct permissions
+    mkdir -p ~/.ssh ~/.config/gh ~/.claude ~/.happy ~/.dotnet ~/repos
     chmod 700 ~/.ssh
 
-    # Setup git worktrees for each repository
-    REPOS="${data.coder_parameter.git_repos.value}"
-    if [ -n "$REPOS" ]; then
-      IFS=',' read -ra REPO_ARRAY <<< "$REPOS"
-      for repo in "$${REPO_ARRAY[@]}"; do
-        repo=$(echo "$repo" | xargs)  # Trim whitespace
-        if [ -n "$repo" ]; then
-          repo_name=$(basename "$repo" .git)
+    # Clone repository if specified
+    REPO="${data.coder_parameter.git_repository.value}"
+    if [ -n "$REPO" ]; then
+      REPO_NAME=$(basename "$REPO" .git)
+      REPO_DIR="/home/vscode/repos/$REPO_NAME"
 
-          if [ ! -d "/home/vscode/repos/$repo_name" ]; then
-            echo "Cloning $repo..."
-            git clone --bare "$repo" "/home/vscode/repos/$repo_name.git"
+      if [ ! -d "$REPO_DIR" ]; then
+        echo "Cloning $REPO..."
+        git clone "$REPO" "$REPO_DIR"
+      else
+        echo "Repository $REPO_NAME already exists, pulling latest..."
+        cd "$REPO_DIR" && git pull || true
+      fi
 
-            # Create main worktree
-            cd "/home/vscode/repos/$repo_name.git"
-            git worktree add "/home/vscode/repos/$repo_name/main" HEAD
+      cd "$REPO_DIR"
+      echo "Starting Happy CLI in $REPO_DIR..."
 
-            echo "Repository $repo_name set up with worktrees"
-          fi
-        fi
-      done
+      # Start Happy CLI (connects Claude Code to mobile)
+      if command -v happy &> /dev/null; then
+        happy &
+        HAPPY_PID=$!
+        echo "Happy CLI started with PID $HAPPY_PID"
+      else
+        echo "Happy CLI not found, skipping..."
+      fi
     fi
 
     echo "Workspace ready!"
@@ -246,67 +260,74 @@ resource "coder_agent" "main" {
 }
 
 # -----------------------------------------------------------------------------
-# Azure Container App for Workspace
+# Azure Container Instance for Workspace
 # -----------------------------------------------------------------------------
 
-resource "azurerm_container_app" "workspace" {
-  name                         = "ws-${lower(data.coder_workspace.me.name)}"
-  resource_group_name          = var.resource_group_name
-  container_app_environment_id = var.container_app_environment_id
-  revision_mode                = "Single"
+resource "azurerm_container_group" "workspace" {
+  name                = "aci-ws-${lower(replace(data.coder_workspace.me.name, "/[^a-z0-9-]/", "-"))}"
+  resource_group_name = var.resource_group_name
+  location            = var.location
+  os_type             = "Linux"
+  ip_address_type     = "Private"
+  subnet_ids          = [var.aci_subnet_id]
+  restart_policy      = data.coder_workspace.me.start_count > 0 ? "Always" : "Never"
 
-  template {
-    min_replicas = data.coder_workspace.me.start_count
-    max_replicas = data.coder_workspace.me.start_count
+  image_registry_credential {
+    server   = var.container_registry_server
+    username = var.container_registry_username
+    password = var.container_registry_password
+  }
 
-    container {
-      name   = "workspace"
-      image  = "${var.container_registry_server}/devcontainer-dotnet:${data.coder_parameter.dotnet_version.value}"
-      cpu    = data.coder_parameter.cpu.value
-      memory = data.coder_parameter.memory.value
+  container {
+    name   = "workspace"
+    image  = "${var.container_registry_server}/devcontainer-dotnet:${data.coder_parameter.dotnet_version.value}"
+    cpu    = data.coder_parameter.cpu.value
+    memory = data.coder_parameter.memory.value
 
-      env {
-        name  = "CODER_AGENT_TOKEN"
-        value = coder_agent.main.token
-      }
+    environment_variables = {
+      CODER_AGENT_URL   = var.coder_access_url
+      HAPPY_SERVER_URL  = "http://${var.vm_private_ip}:3005"
+      GIT_REPOSITORY    = data.coder_parameter.git_repository.value
+    }
 
-      env {
-        name  = "CODER_AGENT_URL"
-        value = data.coder_workspace.me.access_url
-      }
-
-      volume_mounts {
-        name = "workspace-data"
-        path = "/home/vscode"
-      }
+    secure_environment_variables = {
+      CODER_AGENT_TOKEN = coder_agent.main.token
     }
 
     volume {
-      name         = "workspace-data"
-      storage_name = "workspace-data"
-      storage_type = "AzureFile"
+      name                 = "workspace-data"
+      mount_path           = "/home/vscode"
+      storage_account_name = var.storage_account_name
+      storage_account_key  = var.storage_account_key
+      share_name           = "workspace-data"
+    }
+
+    ports {
+      port     = 22
+      protocol = "TCP"
     }
   }
 
-  registry {
-    server               = var.container_registry_server
-    username             = var.container_registry_username
-    password_secret_name = "acr-password"
+  tags = {
+    Workspace = data.coder_workspace.me.name
+    Owner     = data.coder_workspace_owner.me.name
+    ManagedBy = "Coder"
   }
 
-  secret {
-    name  = "acr-password"
-    value = var.container_registry_password
+  lifecycle {
+    ignore_changes = [
+      container[0].secure_environment_variables,
+    ]
   }
 }
 
 # -----------------------------------------------------------------------------
-# Outputs
+# Workspace Metadata
 # -----------------------------------------------------------------------------
 
 resource "coder_metadata" "workspace" {
   count       = 1
-  resource_id = azurerm_container_app.workspace.id
+  resource_id = azurerm_container_group.workspace.id
 
   item {
     key   = "CPU"
@@ -314,10 +335,14 @@ resource "coder_metadata" "workspace" {
   }
   item {
     key   = "Memory"
-    value = data.coder_parameter.memory.value
+    value = "${data.coder_parameter.memory.value} GB"
   }
   item {
     key   = ".NET Version"
     value = data.coder_parameter.dotnet_version.value
+  }
+  item {
+    key   = "Repository"
+    value = data.coder_parameter.git_repository.value != "" ? data.coder_parameter.git_repository.value : "None"
   }
 }
