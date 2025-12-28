@@ -9,8 +9,34 @@ terraform {
   }
 }
 
+variable "azure_subscription_id" {
+  description = "Azure Subscription ID"
+  type        = string
+}
+
+variable "azure_tenant_id" {
+  description = "Azure Tenant ID"
+  type        = string
+}
+
+variable "azure_client_id" {
+  description = "Azure Service Principal Client ID"
+  type        = string
+}
+
+variable "azure_client_secret" {
+  description = "Azure Service Principal Client Secret"
+  type        = string
+  sensitive   = true
+}
+
 provider "azurerm" {
   features {}
+
+  subscription_id = var.azure_subscription_id
+  tenant_id       = var.azure_tenant_id
+  client_id       = var.azure_client_id
+  client_secret   = var.azure_client_secret
 }
 
 provider "coder" {}
