@@ -19,10 +19,10 @@ packages:
   - nano
 
 runcmd:
-  # Install .NET 9 SDK
+  # Install latest .NET SDK
   - curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh
   - chmod +x /tmp/dotnet-install.sh
-  - /tmp/dotnet-install.sh --channel 9.0 --install-dir /usr/share/dotnet
+  - /tmp/dotnet-install.sh --install-dir /usr/share/dotnet
   - ln -sf /usr/share/dotnet/dotnet /usr/bin/dotnet
   - echo 'export DOTNET_ROOT=/usr/share/dotnet' >> /etc/profile.d/dotnet.sh
   - echo 'export PATH=$PATH:/usr/share/dotnet' >> /etc/profile.d/dotnet.sh
@@ -37,6 +37,10 @@ runcmd:
   # Install Node.js 20 LTS (required for Happy CLI)
   - curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
   - apt-get install -y nodejs
+
+  # Install Claude Code
+  - curl -fsSL https://claude.ai/install.sh | bash
+  - echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
 
   # Install Happy CLI globally
   - npm install -g happy-coder
