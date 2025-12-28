@@ -1,24 +1,18 @@
 # Copy this file to terraform.tfvars and fill in your values
 
 # Required
-admin_email       = "your-email@example.com"
-vm_ssh_public_key = "ssh-rsa AAAA... your-key"
+vm_ssh_public_key = "ssh-ed25519 AAAA... your-key"
 
 # Optional - Override defaults
-# resource_group_name = "rg-coder-workstation"
+# resource_group_name = "rg-dev-workstation"
 # location            = "australiaeast"
-# environment         = "dev"
-# coder_version       = "2.16.1"
-# workspace_cpu       = 2
-# workspace_memory    = "8Gi"
-# coder_domain        = ""  # Leave empty to use Azure-provided domain
 
 # VM Configuration
 # vm_size           = "Standard_B2ms"
+# vm_disk_size_gb   = 64
 # vm_admin_username = "azureuser"
 # ssh_allowed_ip    = "YOUR_PUBLIC_IP/32"  # Restrict SSH access to your IP
 
 # Network Configuration
 # vnet_address_space = "10.0.0.0/16"
 # vm_subnet_prefix   = "10.0.1.0/24"
-# aci_subnet_prefix  = "10.0.2.0/24"
