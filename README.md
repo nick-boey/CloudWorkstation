@@ -101,6 +101,31 @@ terraform output ssh_command
 # Example output: ssh azureuser@<public-ip>
 ```
 
+#### Using Termius (Mobile/Desktop)
+
+[Termius](https://termius.com/) is a cross-platform SSH client available for iOS, Android, macOS, Windows, and Linux.
+
+1. **Install Termius** from the [App Store](https://apps.apple.com/app/termius-ssh-client/id549039908), [Google Play](https://play.google.com/store/apps/details?id=com.server.auditor.ssh.client), or [termius.com](https://termius.com/)
+
+2. **Add your SSH key** to Termius:
+   - Open Termius and go to **Keychain**
+   - Tap **+** → **Key**
+   - Either import your existing private key file (`~/.ssh/id_ed25519`) or paste the key content
+   - Give it a label (e.g., "CloudWorkstation")
+
+3. **Create a new host**:
+   - Go to **Hosts** → tap **+**
+   - Configure the connection:
+     - **Label**: CloudWorkstation (or any name you prefer)
+     - **Address**: Your VM's public IP (from `terraform output vm_public_ip`)
+     - **Port**: 22
+     - **Username**: `azureuser`
+     - **Keys**: Select the key you added in step 2
+
+4. **Connect**: Tap on the host to establish the SSH connection
+
+> **Tip**: Enable Termius sync to keep your hosts and keys available across all your devices.
+
 ### 4. First-Time Setup
 
 After connecting via SSH, configure your development environment:
